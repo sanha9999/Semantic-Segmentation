@@ -1,4 +1,6 @@
-from turtle import forward
+'''
+직관적인 모델 구조 구현
+'''
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,7 +18,7 @@ def convBlockx2(in_channels, out_channels):
 
     return layer
 
-class Encoder(nn.Module):
+class Encoder(nn.Module): # 인코더 구조
     def __init__(self, in_channels, out_channels):
         super(Encoder, self).__init__()
         self.encode = convBlockx2(in_channels, out_channels)
@@ -28,7 +30,7 @@ class Encoder(nn.Module):
         
         return x
 
-class Decoder(nn.Module):
+class Decoder(nn.Module): # 디코더 구조
     def __init__(self, in_channels, middle_channels, out_channels):
         super(Decoder, self).__init__()
         self.decode = nn.Sequential(
@@ -75,7 +77,7 @@ class UNet(nn.Module):
         enc3 = self.enc3(enc2)
         enc4 = self.enc4(enc3)
         mid = self.mid(enc4)
-        dec4 = self.dec4(torch.concat([mid, enc4], dim=1))
+        dec4 = self.dec4(torch.concat([mid, enc4], dim=1)) # skip connection
         dec3 = self.dec3(torch.concat([dec4, enc3], dim=1))
         dec2 = self.dec2(torch.concat([dec3, enc2], dim=1))
         dec1 = self.dec1(torch.concat([dec2, enc1], dim=1))
