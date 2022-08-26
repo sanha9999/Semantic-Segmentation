@@ -1,3 +1,4 @@
+from turtle import forward
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -45,3 +46,39 @@ class Decoder(nn.Module):
 
         return x
 
+class UNet(nn.Module):
+    def __init__(self, num_classes):
+        super(UNet, self).__init__()
+        self.enc1 = Encoder(3, 64)
+        self.enc2 = Encoder(64, 128)
+        self.enc3 = Encoder(128, 256)
+        self.enc4 = Encoder(256, 512)
+        
+        self.mid = Decoder(512, 1024, 512)
+
+        self.dec4 = Decoder(1024, 512, 256)
+        self.dec3 = Decoder(512, 256, 128)
+        self.dec2 = Decoder(256, 128, 64)
+        self.dec1 = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+        self.final = nn.Conv2d(64, num_classes, kernel_size=1)
+
+    def forward(self, x):
+        enc1 = self.enc1(x)
+        enc2 = self.enc2(enc1)
+        enc3 = self.enc3(enc2)
+        enc4 = self.enc4(enc3)
+        mid = self.mid(enc4)
+        dec4 = self.dec4(torch.concat([mid, enc4], dim=1))
+        dec3 = self.dec3(torch.concat([dec4, enc3], dim=1))
+        dec2 = self.dec2(torch.concat([dec3, enc2], dim=1))
+        dec1 = self.dec1(torch.concat([dec2, enc1], dim=1))
+        final = self.final(dec1)
+
+        return final
