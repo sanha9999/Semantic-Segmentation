@@ -25,7 +25,7 @@ class Encoder(nn.Module): # 인코더 구조
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def forward(self, x):
-        x = self.down_conv(x) 
+        x = self.encode(x) 
         x = self.pool(x)
         
         return x
