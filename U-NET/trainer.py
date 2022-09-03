@@ -1,8 +1,14 @@
+import os
+from matplotlib import transforms
 import pytorch_lightning as pl 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import functional as FM
+
+from dataset import CityDataset
+import albumentations as A
+from albumentations.pytorch.transforms import ToTensorV2
 
 class UnetModel(pl.LightningModule):
     def __init__(self, params):
@@ -95,12 +101,30 @@ class UnetModel(pl.LightningModule):
         x, y = batch
         y_hat = self.forward(x)
         val_loss = F.cross_entropy(y_hat, y)
-        self.log("val_loss", val_loss)
+        self.log("val_loss", val_loss, prog_bar=True)
 
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        self.log("avg_val_loss", avg_loss)
+        tensorboard_logs = {'val_loss', avg_loss}
+        #self.log("avg_val_loss", avg_loss)
+        return {'avg_val_loss' : avg_loss, 'log' : tensorboard_logs}
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.model.parameter(), lr = 1e-3)
+        return torch.optim.Adam(self.parameters(), lr = 1e-3)
 
+
+class UnetDataModule(pl.LightningDataModule):
+    def __init__(self, img_dir, batch_size = 32):
+        super().__init__()
+        self.img_dir = img_dir
+        self.batch_size = batch_size
+        self.transform = A.Compose([
+            A.Normalize(),
+            A.HorizontalFlip(p=0.6),
+            A.VerticalFlip(p=0.5),
+            ToTensorV2()
+        ])
+    
+    def prepare_data(self):
+        train_data = CityDataset(self.img_dir + '/train', transform = self.transform)
+        train_test = CityDataset(self.img_dir + '/val', transform = self.transform)
