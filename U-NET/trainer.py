@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchmetrics import functional as FM
+import torch.utils.data as data
 
 from dataset import CityDataset
 import albumentations as A
@@ -127,4 +127,18 @@ class UnetDataModule(pl.LightningDataModule):
     
     def prepare_data(self):
         train_data = CityDataset(self.img_dir + '/train', transform = self.transform)
-        train_test = CityDataset(self.img_dir + '/val', transform = self.transform)
+        self.test_data = CityDataset(self.img_dir + '/val', transform = self.transform)
+
+        train_data_size = int(len(train_data) * 0.8)
+        val_data_size = len(train_data) - train_data_size
+        print(train_data_size)
+        self.train_data, self.val_data = data.random_split(train_data, [train_data_size, val_data_size])
+
+    def train_dataloader(self):
+        return data.DataLoader(self.train_data, batch_size=self.batch_size)
+
+    def val_dataloader(self):
+        return data.DataLoader(self.val_data, batch_size=self.batch_size)
+
+    def test_dataloader(self):
+        return data.DataLoader(self.test_data, batch_size=self.batch_size)
