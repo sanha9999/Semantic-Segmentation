@@ -1,10 +1,12 @@
 import os
-from matplotlib import transforms
+from unittest import skip
+import numpy as np
+from argparse import ArgumentParser
 import pytorch_lightning as pl 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.utils.data as data
+from torch.utils.data import DataLoader, random_split
 
 from dataset import CityDataset
 import albumentations as A
@@ -17,12 +19,9 @@ class UnetModel(pl.LightningModule):
 
         def convBlockx2(in_channels, out_channels):
             layer = nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size=3, bias=False),
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
                 nn.BatchNorm2d(out_channels),
                 nn.ReLU(inplace=True),
-                nn.Conv2d(out_channels, out_channels, kernel_size=3, bias=False),
-                nn.BatchNorm2d(out_channels),
-                nn.ReLU(inplace=True)
             )
 
             return layer
@@ -40,20 +39,23 @@ class UnetModel(pl.LightningModule):
                 return x
 
         class Decoder(nn.Module): 
-            def __init__(self, in_channels, middle_channels, out_channels):
+            def __init__(self, in_channels, out_channels):
                 super(Decoder, self).__init__()
                 self.decode = nn.Sequential(
-                    nn.Conv2d(in_channels, middle_channels, kernel_size=3),
-                    nn.BatchNorm2d(middle_channels),
+                    nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2),
+                    nn.BatchNorm2d(out_channels),
                     nn.ReLU(inplace=True),
-                    nn.Conv2d(middle_channels, middle_channels, kernel_size=3),
-                    nn.BatchNorm2d(middle_channels),
+                    
+                )
+                self.skip_connection = nn.Sequential(
+                    nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+                    nn.BatchNorm2d(out_channels),
                     nn.ReLU(inplace=True),
-                    nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=2, stride=2)
                 )
 
-            def forward(self, x):
+            def forward(self, x, skip):
                 x = self.decode(x)
+                x = self.skip_connection(torch.cat([x, skip], dim = 1))
 
                 return x
 
@@ -62,36 +64,31 @@ class UnetModel(pl.LightningModule):
         self.enc3 = Encoder(128, 256)
         self.enc4 = Encoder(256, 512)
         
-        self.mid = Decoder(512, 1024, 512)
+        self.mid = Encoder(512, 1024)
 
-        self.dec4 = Decoder(1024, 512, 256)
-        self.dec3 = Decoder(512, 256, 128)
-        self.dec2 = Decoder(256, 128, 64)
-        self.dec1 = nn.Sequential(
-            nn.Conv2d(128, 64, kernel_size=3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 64, kernel_size=3),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True)
-        )
-        self.final = nn.Conv2d(64, self.n_classes, kernel_size=1)
+        self.dec4 = Decoder(1024, 512)
+        self.dec3 = Decoder(512, 256)
+        self.dec2 = Decoder(256, 128)
+        self.dec1 = Decoder(128, 64)
+        self.final = nn.Conv2d(64, self.n_classes, kernel_size=3, stride=1, padding=1)
 
     def forward(self, x):
-        enc1 = self.enc1(x)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        mid = self.mid(enc4)
-        dec4 = self.dec4(torch.concat([mid, enc4], dim=1))
-        dec3 = self.dec3(torch.concat([dec4, enc3], dim=1))
-        dec2 = self.dec2(torch.concat([dec3, enc2], dim=1))
-        dec1 = self.dec1(torch.concat([dec2, enc1], dim=1))
-        final = self.final(dec1)
+        # x : [-1, 3, 256, 256]
+        enc1 = self.enc1(x) # [-1, 64, 128, 128]
+        enc2 = self.enc2(enc1) # [-1, 128, 64, 64]
+        enc3 = self.enc3(enc2) # [-1, 256, 32, 32]
+        enc4 = self.enc4(enc3) # [-1, 512, 16, 16]
+        mid = self.mid(enc4) # [-1, 1024, 4, 4]
+        dec4 = self.dec4(mid, enc4) # [-1, 512, 16, 16]
+        dec3 = self.dec3(dec4, enc3) # [-1, 256, 32, 32]
+        dec2 = self.dec2(dec3, enc2) # [-1, 128, 64, 64]
+        dec1 = self.dec1(dec2, enc1) # [-1, 64, 128, 128]
+        final = self.final(dec1) 
 
         return final
 
     def training_step(self, batch, batch_idx):
+        print("** training **")
         x, y = batch
         y_hat = self.forward(x)
         loss = F.cross_entropy(y_hat, y)
@@ -112,10 +109,18 @@ class UnetModel(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr = 1e-3)
 
+    @staticmethod
+    def add_model_specific_args(parent_parser):
+        parser = ArgumentParser(parents = [parent_parser])
+        print("** static on ** " * 2)
+        parser.add_argument('--n_classes', type=int, default=10)
+        return parser
+
 
 class UnetDataModule(pl.LightningDataModule):
-    def __init__(self, img_dir, batch_size = 32):
+    def __init__(self, img_dir: str, batch_size = 32):
         super().__init__()
+        
         self.img_dir = img_dir
         self.batch_size = batch_size
         self.transform = A.Compose([
@@ -126,19 +131,23 @@ class UnetDataModule(pl.LightningDataModule):
         ])
     
     def prepare_data(self):
+        print("** prepare data ** " * 2)
         train_data = CityDataset(self.img_dir + '/train', transform = self.transform)
         self.test_data = CityDataset(self.img_dir + '/val', transform = self.transform)
-
         train_data_size = int(len(train_data) * 0.8)
-        val_data_size = len(train_data) - train_data_size
         print(train_data_size)
-        self.train_data, self.val_data = data.random_split(train_data, [train_data_size, val_data_size])
-
+        val_data_size = len(train_data) - train_data_size
+        print(val_data_size)
+        print(len(self.test_data))
+        self.train_data, self.val_data = random_split(train_data, [train_data_size, val_data_size])
+        print("-" * 20)
+        
     def train_dataloader(self):
-        return data.DataLoader(self.train_data, batch_size=self.batch_size)
+        print("** train dataloader ** " * 2)
+        return DataLoader(self.train_data, batch_size=self.batch_size)
 
     def val_dataloader(self):
-        return data.DataLoader(self.val_data, batch_size=self.batch_size)
+        return DataLoader(self.val_data, batch_size=self.batch_size)
 
     def test_dataloader(self):
-        return data.DataLoader(self.test_data, batch_size=self.batch_size)
+        return DataLoader(self.test_data, batch_size=self.batch_size)
