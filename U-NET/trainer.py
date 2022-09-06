@@ -93,10 +93,8 @@ class UnetModel(pl.LightningModule):
         return final
 
     def training_step(self, batch, batch_idx):
-        print("** training **" * 2)
         x, y = batch
         y_hat = self.forward(x)
-        print("train : " , np.shape(y_hat))
         loss = F.cross_entropy(y_hat, y)
         return loss
 
@@ -104,12 +102,11 @@ class UnetModel(pl.LightningModule):
         x, y = batch
         y_hat = self.forward(x)
         val_loss = F.cross_entropy(y_hat, y)
-        self.log("val_loss", val_loss, prog_bar=True)
+        return {"val_loss" : val_loss}
 
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         tensorboard_logs = {'val_loss', avg_loss}
-        #self.log("avg_val_loss", avg_loss)
         return {'avg_val_loss' : avg_loss, 'log' : tensorboard_logs}
 
     def configure_optimizers(self):
@@ -118,17 +115,17 @@ class UnetModel(pl.LightningModule):
     @staticmethod
     def add_model_specific_args(parent_parser):
         parser = ArgumentParser(parents = [parent_parser])
-        print("** static on ** " * 2)
         parser.add_argument('--n_classes', type=int, default=10)
         return parser
 
 
 class UnetDataModule(pl.LightningDataModule):
-    def __init__(self, img_dir: str, batch_size = 4):
+    def __init__(self, img_dir: str, n_classes, batch_size = 4):
         super().__init__()
         
         self.img_dir = img_dir
         self.batch_size = batch_size
+        self.n_classes = n_classes
         self.transform = A.Compose([
             A.Normalize(),
             A.HorizontalFlip(p=0.6),
@@ -137,19 +134,13 @@ class UnetDataModule(pl.LightningDataModule):
         ])
     
     def prepare_data(self):
-        print("** prepare data ** " * 2)
-        train_data = CityDataset(self.img_dir + '/train', transform = self.transform)
-        self.test_data = CityDataset(self.img_dir + '/val', transform = self.transform)
+        train_data = CityDataset(self.img_dir + '/train', n_classes=self.n_classes ,transform = self.transform)
+        self.test_data = CityDataset(self.img_dir + '/val', n_classes = self.n_classes ,transform = self.transform)
         train_data_size = int(len(train_data) * 0.8)
-        print(train_data_size)
         val_data_size = len(train_data) - train_data_size
-        print(val_data_size)
-        print(len(self.test_data))
         self.train_data, self.val_data = random_split(train_data, [train_data_size, val_data_size])
-        print("-" * 20)
         
     def train_dataloader(self):
-        print("** train dataloader ** " * 2)
         return DataLoader(self.train_data, batch_size=self.batch_size)
 
     def val_dataloader(self):
