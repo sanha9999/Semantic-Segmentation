@@ -26,8 +26,9 @@ def main(params):
     working_dir = 'C:/Users/kangsanha/Desktop/segmentation/U-NET/'
     model = UnetModel(params=params)
     img_dir = params.dataset
+    n_classes = params.n_classes
 
-    dm = UnetDataModule(img_dir=img_dir)
+    dm = UnetDataModule(img_dir=img_dir, n_classes = n_classes)
 
     #os.makedirs(working_dir + params.log_dir)
 
