@@ -1,4 +1,5 @@
 import os
+from turtle import st
 from unittest import skip
 import numpy as np
 from argparse import ArgumentParser
@@ -34,15 +35,16 @@ class UnetModel(pl.LightningModule):
 
             def forward(self, x):
                 x = self.encode(x) 
+                skip = x
                 x = self.pool(x)
                 
-                return x
+                return x, skip
 
         class Decoder(nn.Module): 
             def __init__(self, in_channels, out_channels):
                 super(Decoder, self).__init__()
                 self.decode = nn.Sequential(
-                    nn.ConvTranspose2d(in_channels, out_channels, kernel_size=2, stride=2),
+                    nn.ConvTranspose2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1),
                     nn.BatchNorm2d(out_channels),
                     nn.ReLU(inplace=True),
                     
@@ -64,7 +66,7 @@ class UnetModel(pl.LightningModule):
         self.enc3 = Encoder(128, 256)
         self.enc4 = Encoder(256, 512)
         
-        self.mid = Encoder(512, 1024)
+        self.mid = nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=1)
 
         self.dec4 = Decoder(1024, 512)
         self.dec3 = Decoder(512, 256)
@@ -74,23 +76,27 @@ class UnetModel(pl.LightningModule):
 
     def forward(self, x):
         # x : [-1, 3, 256, 256]
-        enc1 = self.enc1(x) # [-1, 64, 128, 128]
-        enc2 = self.enc2(enc1) # [-1, 128, 64, 64]
-        enc3 = self.enc3(enc2) # [-1, 256, 32, 32]
-        enc4 = self.enc4(enc3) # [-1, 512, 16, 16]
-        mid = self.mid(enc4) # [-1, 1024, 4, 4]
-        dec4 = self.dec4(mid, enc4) # [-1, 512, 16, 16]
-        dec3 = self.dec3(dec4, enc3) # [-1, 256, 32, 32]
-        dec2 = self.dec2(dec3, enc2) # [-1, 128, 64, 64]
-        dec1 = self.dec1(dec2, enc1) # [-1, 64, 128, 128]
-        final = self.final(dec1) 
+        enc1, skip1 = self.enc1(x) # [-1, 64, 128, 128]
+        enc2, skip2 = self.enc2(enc1) # [-1, 128, 64, 64]
+        enc3, skip3 = self.enc3(enc2) # [-1, 256, 32, 32]
+        enc4, skip4 = self.enc4(enc3) # [-1, 512, 16, 16]
+        
+        mid = self.mid(enc4) # [-1, 1024, 16, 16]
+
+        dec4 = self.dec4(mid, skip4) # [-1, 512, 32, 32]
+        dec3 = self.dec3(dec4, skip3) # [-1, 256, 64, 64]
+        dec2 = self.dec2(dec3, skip2) # [-1, 128, 128, 128]
+        dec1 = self.dec1(dec2, skip1) # [-1, 64, 256, 256]
+        
+        final = self.final(dec1) # [-1, n_classes, 256, 256]
 
         return final
 
     def training_step(self, batch, batch_idx):
-        print("** training **")
+        print("** training **" * 2)
         x, y = batch
         y_hat = self.forward(x)
+        print("train : " , np.shape(y_hat))
         loss = F.cross_entropy(y_hat, y)
         return loss
 
@@ -118,7 +124,7 @@ class UnetModel(pl.LightningModule):
 
 
 class UnetDataModule(pl.LightningDataModule):
-    def __init__(self, img_dir: str, batch_size = 32):
+    def __init__(self, img_dir: str, batch_size = 4):
         super().__init__()
         
         self.img_dir = img_dir
