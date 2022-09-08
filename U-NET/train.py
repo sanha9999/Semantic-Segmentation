@@ -37,7 +37,7 @@ def main(params):
 
     checkpoint_callback = ModelCheckpoint(
         dirpath= working_dir + params.log_dir,
-        filename='unet-0.005-{epoch}-{val_loss:.2f}',
+        filename='unet-{lr}-{epoch}-{val_loss:.2f}',
         verbose=True
     )
 
