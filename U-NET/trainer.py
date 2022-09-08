@@ -1,6 +1,4 @@
 import os
-from turtle import st
-from unittest import skip
 import numpy as np
 from argparse import ArgumentParser
 import pytorch_lightning as pl 
@@ -96,21 +94,31 @@ class UnetModel(pl.LightningModule):
         x, y = batch
         y_hat = self.forward(x)
         loss = F.cross_entropy(y_hat, y)
+        self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         y_hat = self.forward(x)
         val_loss = F.cross_entropy(y_hat, y)
-        return {"val_loss" : val_loss}
+        self.log('val_loss', val_loss)
+        return {'val_loss': val_loss}
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self.forward(x)
+        test_loss = F.cross_entropy(y_hat, y)
+        
+        return {'test_loss': test_loss}
 
     def validation_epoch_end(self, outputs):
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         tensorboard_logs = {'val_loss', avg_loss}
-        return {'avg_val_loss' : avg_loss, 'log' : tensorboard_logs}
+        self.log('avg_val_loss', avg_loss)
+        return {'avg_val_loss' : avg_loss, 'log' : tensorboard_logs, 'progress_bar' : {'val_loss' : avg_loss}}
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr = 1e-3)
+        return torch.optim.Adam(self.parameters(), lr = 0.01)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
