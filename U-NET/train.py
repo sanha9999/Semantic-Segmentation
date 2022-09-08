@@ -1,12 +1,11 @@
-from msilib.schema import MsiPatchHeaders
-import os
-from unicodedata import east_asian_width
+import wandb
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 from argparse import ArgumentParser
 import numpy as np
 import torch
+from pytorch_lightning.loggers import WandbLogger
 
 from trainer import UnetModel, UnetDataModule
 
@@ -23,6 +22,8 @@ def define_argparser():
     return params
 
 def main(params):
+    wandb.login()
+
     working_dir = 'C:/Users/kangsanha/Desktop/segmentation/U-NET/'
     model = UnetModel(params=params)
     img_dir = params.dataset
@@ -30,26 +31,33 @@ def main(params):
 
     dm = UnetDataModule(img_dir=img_dir, n_classes = n_classes)
 
+    wandb_logger = WandbLogger(name='Adam-epoch50-0.005', project='pytorchlightning')
+
     #os.makedirs(working_dir + params.log_dir)
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
         dirpath= working_dir + params.log_dir,
-        filename='unet-{epoch}-{val_loss:.2f}'
+        filename='unet-0.005-{epoch}-{val_loss:.2f}',
+        verbose=True
     )
 
     stop_callback = EarlyStopping(
         monitor='val_loss',
+        patience=5,
+        mode='min',
+        verbose=True
     )
 
     trainer = Trainer(
         accelerator="auto", 
         devices=1 if torch.cuda.is_available() else None,
-        max_epochs=10,
-        callbacks=[checkpoint_callback ,stop_callback],
+        logger=wandb_logger,
+        max_epochs=50,
+        callbacks=[checkpoint_callback, stop_callback],
     )
     
     trainer.fit(model, datamodule=dm)
+    #wandb_logger.watch(model)
 
 if __name__ == '__main__':
     params = define_argparser()
